@@ -47,6 +47,7 @@ class CareerPilotRunResult:
     adapted: bool = False
     adapted_plan: Optional[ReplanResult] = None
     decision_explanation: str = ""
+    llm_used: bool = False
 
 
 class CareerPilotAgent:
@@ -54,6 +55,7 @@ class CareerPilotAgent:
 
     def __init__(self):
         self.log: list = []
+        self.llm_used: bool = False
 
     def _emit(self, status: str, message: str):
         self.log.append(ActivityEvent(status=status, message=message))
@@ -113,6 +115,8 @@ class CareerPilotAgent:
             effective_role, resume_result, github_result, job_result, avg_gap
         )
         result.evaluation = evaluation
+        if evaluation.used_llm:
+            self.llm_used = True
 
         # ---------------- ADAPT / REPLAN ----------------
         needs_replan = (not github_result.success) or evaluation.needs_replan
@@ -136,6 +140,7 @@ class CareerPilotAgent:
         else:
             self._emit("success", "Progress evaluated")
 
+        result.llm_used = self.llm_used
         result.activity_log = self.log
         return result
 
@@ -153,6 +158,8 @@ class CareerPilotAgent:
                 )
                 raw = call_gemini_json(prompt)
                 if isinstance(raw, dict) and raw.get("target_role"):
+                    self.llm_used = True
+                    self._emit("success", "Gemini reasoning completed (goal understanding)")
                     raw.setdefault("timeframe_months", 6)
                     return raw
             except Exception:
@@ -221,7 +228,11 @@ class CareerPilotAgent:
                 )
                 prompt = DECISION_EXPLANATION_PROMPT.format(ranked_gaps=text_gaps)
                 from agents.llm_client import call_gemini
-                return call_gemini(prompt).strip()
+                text = call_gemini(prompt).strip()
+                if text:
+                    self.llm_used = True
+                    self._emit("success", "Gemini reasoning completed (priority decision)")
+                    return text
             except Exception:
                 pass
         top = ranked_gaps[:3]
