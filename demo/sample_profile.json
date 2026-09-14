@@ -1,0 +1,7 @@
+{
+  "goal": "I want to become an AI/ML engineer and get an internship within 6 months.",
+  "target_role": "AI/ML Engineer",
+  "github_username": "octocat",
+  "current_skills": "Python, pandas, numpy, basic ML coursework, SQL, git",
+  "notes": "Use this sample data to quickly fill the CareerPilot UI for a demo run. Enable 'Demo Failure Mode' on a second run to show the agent's adaptation loop."
+}
