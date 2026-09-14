@@ -14,34 +14,31 @@ in this app falls back to deterministic local logic instead of crashing.
 """
 import json
 import re
-from typing import Any, Optional
+from typing import Any
 
 from config import get_secret
 
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
-GEMINI_MODEL = get_secret("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = get_secret("GEMINI_MODEL", "gemini-2.5-flash")
 
-_model = None
+_client = None
 _configured = False
 
 
 def _configure() -> bool:
-    """Lazily configure the Gemini SDK. Returns True if a key is available."""
-    global _model, _configured
+    """Lazily configure the current Google GenAI SDK."""
+    global _client, _configured
     if _configured:
-        return _model is not None
+        return _client is not None
     _configured = True
     if not GEMINI_API_KEY:
         return False
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_API_KEY)
-        _model = genai.GenerativeModel(GEMINI_MODEL)
+        from google import genai
+        _client = genai.Client(api_key=GEMINI_API_KEY)
         return True
     except Exception:
-        # Deliberately do not include exception details that might echo
-        # back any part of a key or credential-adjacent config.
-        _model = None
+        _client = None
         return False
 
 
@@ -50,45 +47,46 @@ def is_llm_available() -> bool:
     return _configure()
 
 
-def call_gemini(prompt: str, temperature: float = 0.4) -> str:
-    """
-    Call Gemini with a plain text prompt and return the raw text response.
-    Raises RuntimeError if the SDK/key is unavailable or the call fails,
-    so callers can decide how to fall back (this module never silently
-    fabricates a successful response).
-    """
+def call_gemini(
+    prompt: str,
+    temperature: float = 0.4,
+    response_mime_type: str | None = None,
+) -> str:
+    """Call Gemini with a text prompt and return the raw text response."""
     if not _configure():
         raise RuntimeError(
             "Gemini is not configured. Set GEMINI_API_KEY in Streamlit secrets "
             "(or a local .env file for development)."
         )
     try:
-        response = _model.generate_content(
-            prompt,
-            generation_config={"temperature": temperature},
+        from google.genai import types
+        config_kwargs: dict[str, Any] = {"temperature": temperature}
+        if response_mime_type:
+            config_kwargs["response_mime_type"] = response_mime_type
+        response = _client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(**config_kwargs),
         )
         text = response.text or ""
         if not text.strip():
             raise RuntimeError("Gemini returned an empty response")
         return text
     except Exception as e:
-        # Re-raise with a generic message; never echo the API key itself,
-        # and google-generativeai does not include the key in exceptions.
         raise RuntimeError(f"Gemini API call failed: {e}") from e
 
 
 def call_gemini_json(prompt: str, temperature: float = 0.3) -> Any:
-    """
-    Call Gemini expecting a JSON response and parse it, stripping any
-    accidental markdown code fences. Raises RuntimeError on failure so the
-    caller (agent) can trigger its own fallback / adaptation logic.
-    """
-    raw = call_gemini(prompt, temperature=temperature)
+    """Call Gemini expecting JSON and parse the response."""
+    raw = call_gemini(
+        prompt,
+        temperature=temperature,
+        response_mime_type="application/json",
+    )
     cleaned = re.sub(r"^```(json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        # try to salvage the largest {...} or [...] block
         match = re.search(r"(\[.*\]|\{.*\})", cleaned, flags=re.DOTALL)
         if match:
             try:
