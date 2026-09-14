@@ -1,624 +1,203 @@
 # 🧭 CareerPilot — Agentic AI Career Execution System
 
-> **An autonomous AI agent that plans, executes, evaluates, and adapts a student's path toward their career goal — not just a chatbot that prints a roadmap.**
+**An autonomous agent that plans, executes, evaluates, and adapts a student's path to their career goal — not just a chatbot that prints a roadmap.**
 
----
+## Problem
 
-## 🎯 Problem
+Students get generic "learn X, do Y" career advice from static tools or one-shot chatbot prompts. That advice doesn't adapt when a data source fails, when the student's actual profile contradicts their self-assessment, or when new information changes the picture. Nobody *acts* on the student's behalf to gather evidence, reason about priorities, and revise the plan.
 
-Students often receive generic career advice such as *"learn X, build Y, and apply for Z."*
+## Solution
 
-Traditional career tools and one-shot AI prompts usually provide static recommendations. They do not continuously analyze a student's actual evidence, prioritize what matters most, respond to failures, or revise the plan when circumstances change.
+CareerPilot is an agentic controller that runs a full **Goal → Observe → Decide → Act → Evaluate → Adapt** loop:
 
-Career preparation is dynamic — students improve, requirements change, data sources fail, and new information becomes available.
+1. **Goal** — understands the student's stated career goal and timeframe.
+2. **Observe** — gathers evidence from three tools: a Resume parser, a GitHub analyzer, and a Job Requirements researcher.
+3. **Decide** — computes `priority_score = importance × gap × relevance` to rank skill gaps and decide what matters most.
+4. **Act** — calls the Planner to generate a concrete, sequenced action plan.
+5. **Evaluate** — scores profile/skill/project/resume readiness and overall goal alignment.
+6. **Adapt** — if a tool fails (e.g. GitHub is unreachable) or the Evaluator flags an issue, the Replanner generates a revised plan that explicitly accounts for what changed.
 
-**The problem:** students need a system that doesn't just tell them what to do, but continuously **analyzes, decides, evaluates, and adapts**.
+## Why Agentic AI (not a chatbot)
 
----
+A chatbot answers a prompt once. CareerPilot:
+- Calls **multiple real tools** in sequence and combines their outputs as evidence.
+- Makes **quantitative prioritization decisions** (priority_score formula), not just prose.
+- **Detects failure conditions** (missing data, tool errors, low readiness) and **visibly reacts** to them.
+- **Regenerates its own plan** based on the new situation — the adaptation is a distinct, inspectable output, not a rephrased answer.
+- Tracks every step in an **activity log** so the reasoning process is observable, not hidden inside one LLM call.
 
-## 💡 Solution
+## Key Features
 
-**CareerPilot** is an Agentic AI career-execution system that runs a complete:
+- Clean Streamlit dashboard with a live **Agent Activity** panel
+- Real GitHub REST API analysis (languages, repos, stars, activity)
+- Local PDF resume parsing (PyMuPDF) — never uploaded externally
+- Modular job-requirements research with a clearly labeled fallback dataset
+- Skill Gap Analyzer combining self-reported + resume + GitHub evidence
+- Planner using `importance × gap × relevance` prioritization
+- Evaluator producing a readiness score + recommendations
+- Replanner that adapts the plan when tools fail or issues are found
+- **Demo Failure Mode** checkbox to reliably showcase the adaptation loop
+- SQLite run history
+- Every reasoning step has a deterministic local fallback if Gemini is unavailable — the app never crashes due to a missing/failed LLM call
 
-> **GOAL → OBSERVE → DECIDE → ACT → EVALUATE → ADAPT**
+## Agent Workflow
 
-loop.
-
-### 1. 🎯 Goal
-
-Understands the student's target career, role, and timeframe.
-
-### 2. 👀 Observe
-
-Collects evidence from:
-
-* Resume
-* GitHub profile
-* Student-provided skills
-* Job/role requirements
-
-### 3. 🧠 Decide
-
-Identifies and prioritizes skill gaps using:
-
-```text
-priority_score = importance × gap × relevance
 ```
-
-This allows the system to determine which skills should be addressed first.
-
-### 4. ⚙️ Act
-
-Uses the Planner to generate a concrete, sequenced action plan based on the identified priorities.
-
-### 5. 📊 Evaluate
-
-Evaluates:
-
-* Skill readiness
-* Project readiness
-* Resume readiness
-* Profile completeness
-* Alignment with the target career
-
-### 6. 🔄 Adapt
-
-When a tool fails, information is missing, or evaluation identifies an issue, CareerPilot reassesses the situation and generates an **adapted plan**.
-
----
-
-# 🤖 Why Agentic AI?
-
-CareerPilot is designed as an **agentic system**, rather than a conventional chatbot.
-
-### Traditional chatbot
-
-```text
-User Question
-      ↓
-LLM
-      ↓
-Answer
-      ↓
-STOP
-```
-
-### CareerPilot
-
-```text
 GOAL
-  ↓
-OBSERVE
-  ↓
-DECIDE
-  ↓
-ACT
-  ↓
-EVALUATE
-  ↓
+  → OBSERVE  (Resume Tool, GitHub Tool, Job Research Tool)
+  → DECIDE   (priority_score = importance × gap × relevance)
+  → ACT      (Planner generates sequenced steps)
+  → EVALUATE (readiness scores, needs_replan flag)
+  → ADAPT    (Replanner revises the plan if needed)
+  → OUTPUT   (Roadmap + full reasoning/action history)
+```
+
+## Architecture
+
+```
+User
+ ↓
+Streamlit UI (app.py)
+ ↓
+CareerPilot Agent / Controller (agents/career_agent.py)
+ ↓
+Planner (agents/planner.py)
+ ↓
+Tool Selection
+ ├── Resume Tool        (tools/resume_parser.py)
+ ├── GitHub Tool         (tools/github_tool.py)
+ └── Job Research Tool   (tools/job_search.py)
+ ↓
+Skill Gap Analyzer (tools/skill_analyzer.py)
+ ↓
+Evaluator (agents/evaluator.py)
+ ↓
 Success?
- ├── YES → Final Outcome
- └── NO  → ADAPT → REPLAN
-                    ↓
-                  ACT
+ ├── YES → Final Career Plan
+ └── NO  → Replanner (agents/replanner.py) → back to Agent
+ ↓
+SQLite state (database/database.py) + Streamlit session_state
 ```
 
-CareerPilot demonstrates agentic behavior through:
+Gemini LLM calls are isolated in `agents/llm_client.py` — no other module talks to the SDK directly, and every LLM-backed function has a deterministic local fallback.
 
-* **Multiple tool calls** performed in sequence
-* **Evidence-based decision making**
-* **Quantitative skill prioritization**
-* **Failure detection**
-* **Fallback strategy selection**
-* **Dynamic replanning**
-* **Observable agent activity**
-* **State maintained across the execution**
+## Tech Stack
 
-The system does not simply regenerate the same answer. Its plan changes according to the information and tool outcomes available to it.
+- Python 3.10+
+- Streamlit — UI
+- Google Gemini API (`google-generativeai`) — reasoning
+- PyMuPDF — resume PDF extraction
+- GitHub REST API — project evidence
+- SQLite — lightweight run history
+- python-dotenv — secret/config management
 
----
+## Project Structure
 
-# ✨ Key Features
-
-### 🧠 Agentic Career Controller
-
-Coordinates the complete Goal → Observe → Decide → Act → Evaluate → Adapt workflow.
-
-### 📄 Resume Analysis
-
-Extracts information from PDF resumes locally using **PyMuPDF**.
-
-### 🐙 GitHub Analysis
-
-Analyzes publicly available GitHub information including:
-
-* Repositories
-* Programming languages
-* Stars
-* Project activity
-* Project diversity
-* Other available project signals
-
-### 🔎 Job Requirements Research
-
-Uses a modular job-research tool with support for external search and a clearly labeled fallback dataset when live search is unavailable.
-
-### 📊 Skill Gap Analyzer
-
-Combines:
-
-* Self-reported skills
-* Resume evidence
-* GitHub evidence
-* Target-role requirements
-
-to identify and rank skill gaps.
-
-### 📋 Intelligent Planner
-
-Creates a prioritized and sequenced career action plan.
-
-### 📈 Career Readiness Evaluator
-
-Produces readiness scores and identifies areas requiring improvement.
-
-### 🔄 Adaptive Replanner
-
-When the system encounters a failure or identifies a major issue, it revises the career plan rather than simply stopping.
-
-### ⚠️ Demo Failure Mode
-
-A controlled failure mode allows the complete adaptation loop to be demonstrated reliably during a hackathon presentation.
-
-### 💾 Run History
-
-SQLite stores lightweight execution history.
-
-### 🛡️ Graceful Fallbacks
-
-LLM and external-tool failures are handled gracefully where possible, allowing the application to continue using deterministic local fallbacks.
-
----
-
-# 🔄 Agent Workflow
-
-```text
-                    ┌──────────────┐
-                    │     GOAL     │
-                    └──────┬───────┘
-                           ↓
-                    ┌──────────────┐
-                    │   OBSERVE    │
-                    └──────┬───────┘
-                           ↓
-              ┌────────────┼────────────┐
-              ↓            ↓            ↓
-        Resume Tool   GitHub Tool   Job Research
-              └────────────┼────────────┘
-                           ↓
-                    ┌──────────────┐
-                    │    DECIDE    │
-                    │ Skill Gaps   │
-                    │ Priorities   │
-                    └──────┬───────┘
-                           ↓
-                    ┌──────────────┐
-                    │     ACT      │
-                    │    Planner   │
-                    └──────┬───────┘
-                           ↓
-                    ┌──────────────┐
-                    │   EVALUATE   │
-                    └──────┬───────┘
-                           ↓
-                       Success?
-                      /         \
-                    YES          NO
-                    ↓             ↓
-              Final Plan      ADAPT
-                                ↓
-                             REPLAN
-                                ↓
-                              ACT
 ```
-
----
-
-# 🏗️ Architecture
-
-```text
-┌──────────────────────┐
-│        User          │
-└──────────┬───────────┘
-           ↓
-┌──────────────────────┐
-│    Streamlit UI      │
-│       app.py         │
-└──────────┬───────────┘
-           ↓
-┌──────────────────────────────┐
-│ CareerPilot Agent Controller │
-│    agents/career_agent.py    │
-└──────────────┬───────────────┘
-               ↓
-       ┌───────────────┐
-       │    Planner    │
-       └───────┬───────┘
-               ↓
-        ┌──────┴──────┐
-        ↓             ↓
-   Tool Layer      Profile
-        ↓
- ┌──────┼───────────────┐
- ↓      ↓               ↓
-Resume GitHub       Job Research
-Tool    Tool             Tool
- └──────┼───────────────┘
-        ↓
-┌───────────────────────┐
-│  Skill Gap Analyzer   │
-└───────────┬───────────┘
-            ↓
-┌───────────────────────┐
-│      Evaluator        │
-└───────────┬───────────┘
-            ↓
-         Success?
-        /       \
-      YES        NO
-       ↓          ↓
- Final Plan    Replanner
-                  ↓
-                Adapt
-                  ↓
-               Re-evaluate
-
-        ↓
-┌───────────────────────┐
-│ SQLite + Session State│
-└───────────────────────┘
-```
-
-### LLM Layer
-
-Gemini integration is isolated inside:
-
-```text
-agents/llm_client.py
-```
-
-This keeps the LLM provider separate from the rest of the application and allows model configuration through environment variables.
-
----
-
-# 🛠️ Tech Stack
-
-| Technology            | Purpose                         |
-| --------------------- | ------------------------------- |
-| **Python 3.10+**      | Core application                |
-| **Streamlit**         | Interactive dashboard           |
-| **Google Gemini API** | AI reasoning                    |
-| **PyMuPDF**           | Local resume PDF extraction     |
-| **GitHub REST API**   | GitHub profile/project analysis |
-| **SQLite**            | Lightweight execution history   |
-| **python-dotenv**     | Environment configuration       |
-
----
-
-# 📁 Project Structure
-
-```text
 CareerPilot/
-│
-├── app.py
+├── app.py                       # Streamlit entry point
+├── config.py                    # single source of truth for secrets/config
 ├── requirements.txt
 ├── .env.example
 ├── .gitignore
 ├── README.md
-│
+├── .streamlit/
+│   ├── config.toml               # Streamlit server/theme config
+│   └── secrets.toml.example      # template only, never commit real secrets.toml
 ├── agents/
 │   ├── __init__.py
-│   ├── llm_client.py
-│   ├── career_agent.py
+│   ├── llm_client.py      # isolated Gemini integration
+│   ├── career_agent.py    # the agentic controller/loop
 │   ├── planner.py
 │   ├── evaluator.py
 │   └── replanner.py
-│
 ├── tools/
 │   ├── __init__.py
 │   ├── resume_parser.py
 │   ├── github_tool.py
 │   ├── job_search.py
 │   └── skill_analyzer.py
-│
 ├── database/
 │   ├── __init__.py
-│   └── database.py
-│
+│   └── database.py         # writes to OS temp dir; best-effort, never blocks the app
 ├── prompts/
 │   ├── __init__.py
 │   └── prompts.py
-│
 └── demo/
     └── sample_profile.json
 ```
 
----
+## Deploying to Streamlit Community Cloud
 
-# 🚀 Setup
+1. Push this repository to GitHub (make sure `.env`, `.streamlit/secrets.toml`, and any `*.db` files are **not** committed — `.gitignore` already excludes them).
+2. Go to [share.streamlit.io](https://share.streamlit.io), click **New app**, and select this repo/branch.
+3. Set **Main file path** to `app.py`.
+4. Under **Advanced settings → Secrets**, paste:
+   ```toml
+   GEMINI_API_KEY = "your_gemini_api_key_here"
+   GEMINI_MODEL = "gemini-2.0-flash"
+   GITHUB_TOKEN = "optional_personal_access_token"
+   SEARCH_API_KEY = "optional_live_job_search_key"
+   ```
+5. Click **Deploy**.
 
-## 1. Clone the repository
+`GEMINI_API_KEY` is optional at deploy time — CareerPilot runs fully on deterministic local fallbacks without it and shows a friendly in-app notice instead of crashing. `GITHUB_TOKEN` and `SEARCH_API_KEY` are also optional (raises GitHub rate limits / enables live job search respectively).
+
+Local run history is stored in the OS temp directory via SQLite as a best-effort convenience only — Streamlit Cloud's filesystem is ephemeral, so this is not guaranteed to persist across restarts, and the app is fully functional without it.
+
+## Setup Instructions
 
 ```bash
-git clone https://github.com/Sriyut-Singh/CareerPilot.git
 cd CareerPilot
-```
-
-## 2. Create a virtual environment
-
-### Windows
-
-```bash
-python -m venv venv
-venv\Scripts\activate
-```
-
-### macOS / Linux
-
-```bash
 python3 -m venv venv
-source venv/bin/activate
-```
-
-## 3. Install dependencies
-
-```bash
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
-## 4. Configure environment variables
+## Environment Variables / Secrets
 
-Copy:
+Config values are resolved centrally in `config.py`, preferring **Streamlit secrets** and falling back to **environment variables** (`.env`) for local development only:
 
-```text
-.env.example
+```
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL=gemini-2.0-flash
+GITHUB_TOKEN=optional_personal_access_token_for_higher_rate_limits
+SEARCH_API_KEY=optional_live_job_search_provider_key
 ```
 
-to:
+- `GEMINI_API_KEY` — enables LLM-powered reasoning. Without it, CareerPilot still runs fully using deterministic local fallbacks for every step, with a friendly in-app notice.
+- `GEMINI_MODEL` — change to any current Gemini model name without touching code.
+- `GITHUB_TOKEN` — optional; raises GitHub's unauthenticated rate limit.
+- `SEARCH_API_KEY` — optional; if unset, Job Research Tool uses a clearly labeled fallback demo dataset.
 
-```text
-.env
-```
+For **local development**, copy `.env.example` to `.env` and fill in values (or copy `.streamlit/secrets.toml.example` to `.streamlit/secrets.toml`). For **Streamlit Community Cloud**, set the same keys under the app's Settings → Secrets — never commit a real `.env` or `secrets.toml`.
 
-Then add your credentials.
-
----
-
-# 🔐 Environment Variables
-
-```env
-GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=your_supported_gemini_model
-GITHUB_TOKEN=optional_github_token
-SEARCH_API_KEY=optional_search_provider_key
-```
-
-### Variables
-
-**`GEMINI_API_KEY`**
-Enables Gemini-powered reasoning. If unavailable, CareerPilot can use deterministic local fallbacks for supported operations.
-
-**`GEMINI_MODEL`**
-Specifies the Gemini model used by the application.
-
-**`GITHUB_TOKEN`**
-Optional token for increased GitHub API rate limits.
-
-**`SEARCH_API_KEY`**
-Optional key for live job/role research. When unavailable, the application uses a clearly labeled fallback dataset.
-
-> ⚠️ **Never commit `.env` or API keys to GitHub.**
-
----
-
-# ▶️ Run CareerPilot
+## How to Run
 
 ```bash
 streamlit run app.py
 ```
 
-Streamlit will provide a local URL, typically:
+Then open the local URL Streamlit prints (typically `http://localhost:8501`).
 
-```text
-http://localhost:8501
-```
+## Demo Failure Mode
 
----
+Check **"⚠️ Demo Failure Mode"** in the sidebar before clicking **Run CareerPilot**. This forces the GitHub Tool to return a clearly labeled simulated failure (no real API call is made and pretended to succeed). The Agent Activity panel will show the tool failing, the agent evaluating the failure, selecting a fallback strategy, and producing an **Adapted Plan** that explicitly references the missing GitHub evidence.
 
-# ⚠️ Demo Failure Mode
+## Example Workflow
 
-CareerPilot includes a controlled **Demo Failure Mode** designed to demonstrate robustness and adaptation.
+1. Enter goal: *"I want to become an AI/ML engineer and get an internship within 6 months."*
+2. Upload a resume PDF and enter a GitHub username.
+3. Click **Run CareerPilot**.
+4. Watch the Agent Activity panel execute Goal → Observe → Decide → Act → Evaluate.
+5. Review Career Readiness score, Skill Gap table, Agent Decision explanation, and Action Plan.
+6. Enable Demo Failure Mode and run again to see the Adapted Plan appear.
 
-Enable:
+## Future Improvements
 
-> **⚠️ Demo Failure Mode**
-
-before clicking **Run CareerPilot**.
-
-The GitHub tool then returns a clearly labeled simulated failure instead of making a real GitHub request.
-
-The Agent Activity panel demonstrates:
-
-```text
-✓ Goal understood
-✓ Resume analyzed
-✓ Job requirements researched
-⚠ GitHub analysis failed
-↻ Evaluating failure
-↻ Selecting fallback strategy
-✓ Continuing with available evidence
-✓ Recalculating skill gaps
-✓ Updating career plan
-```
-
-The application then produces an **Adapted Plan** that explicitly accounts for the missing GitHub evidence.
-
-This is a controlled robustness test and is **not presented as a real API failure**.
-
----
-
-# 🎬 Demo Workflow
-
-A recommended hackathon demonstration:
-
-### 1. Define the goal
-
-```text
-I want to become an AI/ML engineer
-and get an internship within 6 months.
-```
-
-### 2. Provide evidence
-
-* Upload resume
-* Enter GitHub username
-* Enter current skills
-
-### 3. Run CareerPilot
-
-Show the Agent Activity panel.
-
-### 4. Show the decision
-
-Display:
-
-* Career readiness
-* Skill gaps
-* Priority scores
-* Agent's reasoning for prioritization
-
-### 5. Show the action
-
-Display the generated career plan.
-
-### 6. Trigger failure
-
-Enable:
-
-```text
-⚠️ Demo Failure Mode
-```
-
-### 7. Show adaptation
-
-Demonstrate:
-
-```text
-Failure
-   ↓
-Evaluation
-   ↓
-Fallback
-   ↓
-Recalculation
-   ↓
-Replanning
-   ↓
-Adapted Outcome
-```
-
-### 8. Final outcome
-
-Show the updated roadmap and explain:
-
-> **"CareerPilot doesn't just answer the student. It observes, decides, acts, evaluates, and adapts."**
-
----
-
-# 📌 Example
-
-### User Goal
-
-> I want to become an AI/ML engineer and get an internship within 6 months.
-
-CareerPilot analyzes the available evidence and may identify:
-
-```text
-Python       → Strong
-SQL          → Weak
-Machine Learning → Moderate
-DSA          → Weak
-Projects     → Moderate
-Resume       → Needs improvement
-```
-
-It then calculates priorities and creates a sequence such as:
-
-```text
-1. Strengthen SQL
-2. Improve DSA fundamentals
-3. Build a deployable ML project
-4. Improve resume project descriptions
-5. Apply to relevant internships
-```
-
-If GitHub evidence becomes unavailable, the system adapts the analysis instead of terminating the execution.
-
----
-
-# 🔬 What Makes CareerPilot Agentic?
-
-CareerPilot combines:
-
-```text
-Goal
- ↓
-Evidence Collection
- ↓
-Tool Usage
- ↓
-Decision
- ↓
-Action
- ↓
-Evaluation
- ↓
-Failure Detection
- ↓
-Adaptation
- ↓
-Replanning
-```
-
-The important distinction is that the system's next action depends on the results of previous actions.
-
-It is therefore designed as an **execution loop**, rather than a single prompt-response interaction.
-
----
-
-# 🔮 Future Improvements
-
-* Live job-market intelligence across multiple sources
-* Long-term tracking of skill progress
-* Resume improvement suggestions tied to identified gaps
-* OAuth-based GitHub integration
-* Progress tracking across multiple career sessions
-* Personalized project recommendations
-* Internship/application tracking
-* Roadmap export to PDF or productivity platforms
-
----
-
-# 🏆 Hackathon Focus
-
-CareerPilot is built around the principle:
-
-> **Don't just tell the student what to do. Continuously figure out what should happen next.**
-
-**Goal → Observe → Decide → Act → Evaluate → Adapt**
-
----
-
-## 📄 License
-
-This project currently does not specify an open-source license.
+- Real live job-market search provider integration (the module is already isolated for this)
+- Multi-session memory of skill progress over time
+- Resume rewriting suggestions tied directly to identified gaps
+- OAuth-based GitHub connection instead of username-only lookup
+- Export the roadmap as PDF/Notion

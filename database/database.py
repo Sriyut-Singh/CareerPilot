@@ -1,18 +1,29 @@
 """
-Lightweight SQLite persistence for CareerPilot.
+Lightweight, deployment-safe SQLite persistence for CareerPilot.
 
-Stores a compact record of each agent run (goal, scores, adaptation events)
-so a student could look back at previous sessions. Intentionally minimal —
-most in-session state lives in Streamlit's session_state.
+Streamlit Community Cloud's filesystem is ephemeral and, depending on the
+deployment, may be read-only or reset between reboots/redeploys. This module
+therefore treats persistence as a "best effort" convenience feature, never a
+requirement:
+
+- The DB file is written under the OS temp directory, not the repo directory,
+  so it never conflicts with a read-only source checkout.
+- Every public function catches all exceptions and degrades gracefully
+  (returns -1 / [] instead of raising) so a storage failure never crashes
+  the Streamlit app.
+- Most in-session state still lives in st.session_state (see app.py); this
+  module only adds a "recent runs" convenience view when storage is available.
 """
 from __future__ import annotations
 import sqlite3
 import json
 import os
-from datetime import datetime
-from typing import Optional
+import tempfile
+from datetime import datetime, timezone
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "careerpilot.db")
+# Use the system temp dir so this works even if the app's source directory
+# is mounted read-only (common on hosted platforms).
+DB_PATH = os.path.join(tempfile.gettempdir(), "careerpilot_runs.db")
 
 
 def _get_conn() -> sqlite3.Connection:
@@ -33,6 +44,16 @@ def _get_conn() -> sqlite3.Connection:
     return conn
 
 
+def is_storage_available() -> bool:
+    """Best-effort check the UI can use to show a note when history is off."""
+    try:
+        conn = _get_conn()
+        conn.close()
+        return True
+    except Exception:
+        return False
+
+
 def save_run(
     goal: str,
     target_role: str,
@@ -42,7 +63,11 @@ def save_run(
     adaptation_reason: str,
     plan: list,
 ) -> int:
-    """Persist a run record. Returns the new row id. Never raises."""
+    """
+    Persist a run record. Returns the new row id, or -1 if storage is
+    unavailable/failed for any reason. Never raises — this must not be able
+    to crash the app on a read-only or ephemeral deployment filesystem.
+    """
     try:
         conn = _get_conn()
         cur = conn.execute(
@@ -51,7 +76,7 @@ def save_run(
                 adapted, adaptation_reason, plan_json)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (
-                datetime.utcnow().isoformat(),
+                datetime.now(timezone.utc).isoformat(),
                 goal,
                 target_role,
                 github_username,
@@ -70,7 +95,7 @@ def save_run(
 
 
 def get_recent_runs(limit: int = 10) -> list:
-    """Return recent run summaries, most recent first. Never raises."""
+    """Return recent run summaries, most recent first. Never raises — returns [] on any failure."""
     try:
         conn = _get_conn()
         cur = conn.execute(

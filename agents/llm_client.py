@@ -2,20 +2,24 @@
 Isolated Gemini LLM integration.
 
 All calls to Google's Gemini API go through this module so the rest of the
-codebase never touches the SDK directly. Reads GEMINI_API_KEY and
-GEMINI_MODEL from environment variables via python-dotenv.
+codebase never touches the SDK directly.
+
+Key/config resolution order (secure by design for Streamlit Community Cloud):
+    1. st.secrets["GEMINI_API_KEY"] / st.secrets["GEMINI_MODEL"]  (deployed)
+    2. Environment variables via python-dotenv / os.environ       (local dev fallback)
+
+No key is ever logged, printed, or surfaced in the UI. If no key is found in
+either location, the LLM is simply treated as unavailable and every caller
+in this app falls back to deterministic local logic instead of crashing.
 """
-import os
 import json
 import re
 from typing import Any, Optional
 
-from dotenv import load_dotenv
+from config import get_secret
 
-load_dotenv()
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip()
+GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
+GEMINI_MODEL = get_secret("GEMINI_MODEL", "gemini-2.0-flash")
 
 _model = None
 _configured = False
@@ -35,6 +39,8 @@ def _configure() -> bool:
         _model = genai.GenerativeModel(GEMINI_MODEL)
         return True
     except Exception:
+        # Deliberately do not include exception details that might echo
+        # back any part of a key or credential-adjacent config.
         _model = None
         return False
 
@@ -52,7 +58,10 @@ def call_gemini(prompt: str, temperature: float = 0.4) -> str:
     fabricates a successful response).
     """
     if not _configure():
-        raise RuntimeError("Gemini API key not configured (set GEMINI_API_KEY in .env)")
+        raise RuntimeError(
+            "Gemini is not configured. Set GEMINI_API_KEY in Streamlit secrets "
+            "(or a local .env file for development)."
+        )
     try:
         response = _model.generate_content(
             prompt,
@@ -63,6 +72,8 @@ def call_gemini(prompt: str, temperature: float = 0.4) -> str:
             raise RuntimeError("Gemini returned an empty response")
         return text
     except Exception as e:
+        # Re-raise with a generic message; never echo the API key itself,
+        # and google-generativeai does not include the key in exceptions.
         raise RuntimeError(f"Gemini API call failed: {e}") from e
 
 

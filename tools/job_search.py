@@ -8,13 +8,14 @@ curated demo dataset and LABELS the result as fallback data. It never
 fabricates results and claims they were live.
 """
 from __future__ import annotations
-import os
 from dataclasses import dataclass, field
 from typing import Optional
 
 import requests
 
-SEARCH_API_KEY = os.getenv("SEARCH_API_KEY", "").strip()
+from config import get_secret
+
+SEARCH_API_KEY = get_secret("SEARCH_API_KEY")
 
 # Curated fallback requirement sets, keyed by normalized role name.
 # Used only when no live search API is configured or the call fails.

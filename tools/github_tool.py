@@ -11,14 +11,15 @@ does NOT call the real API and does NOT pretend to succeed — it returns a
 clearly labeled simulated failure.
 """
 from __future__ import annotations
-import os
 from dataclasses import dataclass, field
 from typing import Optional
 
 import requests
 
+from config import get_secret
+
 GITHUB_API_BASE = "https://api.github.com"
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
+GITHUB_TOKEN = get_secret("GITHUB_TOKEN")
 
 
 @dataclass

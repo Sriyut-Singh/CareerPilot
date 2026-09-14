@@ -20,9 +20,10 @@ st.caption("Goal → Observe → Decide → Act → Evaluate → Adapt")
 
 if not is_llm_available():
     st.warning(
-        "GEMINI_API_KEY is not configured. CareerPilot will still run using "
-        "deterministic local fallbacks for every reasoning step, but LLM-powered "
-        "reasoning will be disabled. Set GEMINI_API_KEY in your .env to enable it.",
+        "Gemini is not configured. CareerPilot will still run using deterministic "
+        "local fallbacks for every reasoning step, but LLM-powered reasoning will be "
+        "disabled. To enable it, add `GEMINI_API_KEY` under **Settings → Secrets** in "
+        "Streamlit Community Cloud (or a local `.env` file for development).",
         icon="⚠️",
     )
 
@@ -54,12 +55,19 @@ with st.sidebar:
     run_clicked = st.button("🚀 Run CareerPilot", type="primary", use_container_width=True)
 
     st.divider()
-    with st.expander("Recent Runs (SQLite)"):
-        recent = get_recent_runs(5)
+    with st.expander("Recent Runs (local session storage)"):
+        try:
+            recent = get_recent_runs(5)
+        except Exception:
+            recent = []
         if recent:
             st.dataframe(pd.DataFrame(recent), hide_index=True, use_container_width=True)
         else:
-            st.caption("No runs yet.")
+            st.caption(
+                "No runs yet, or persistent storage isn't available in this "
+                "environment. This is a convenience feature only — CareerPilot "
+                "works fully without it."
+            )
 
 # ---------------------------------------------------------------------------
 # Run the agent
@@ -70,16 +78,29 @@ if run_clicked:
         st.stop()
 
     agent = CareerPilotAgent()
-    with st.spinner("CareerPilot agent is working through its Goal→Observe→Decide→Act→Evaluate→Adapt loop..."):
-        result = agent.run(
-            goal=goal,
-            resume_file=resume_file,
-            github_username=github_username,
-            current_skills=current_skills,
-            target_role=target_role,
-            force_github_failure=demo_failure_mode,
+    try:
+        with st.spinner("CareerPilot agent is working through its Goal→Observe→Decide→Act→Evaluate→Adapt loop..."):
+            result = agent.run(
+                goal=goal,
+                resume_file=resume_file,
+                github_username=github_username,
+                current_skills=current_skills,
+                target_role=target_role,
+                force_github_failure=demo_failure_mode,
+            )
+        st.session_state["last_result"] = result
+    except Exception as e:
+        # Every individual tool already fails gracefully internally; this is
+        # a last-resort safety net so an unexpected error never blanks the
+        # whole app for the user.
+        st.error(
+            "Something unexpected went wrong while running CareerPilot. "
+            "Please try again — if this keeps happening, check that your "
+            "inputs (especially the resume PDF) are valid."
         )
-    st.session_state["last_result"] = result
+        with st.expander("Technical details"):
+            st.code(str(e))
+        st.stop()
 
 # ---------------------------------------------------------------------------
 # Render results
@@ -176,15 +197,18 @@ if result:
         } for s in result.adapted_plan.steps]
         st.dataframe(pd.DataFrame(adapted_rows), hide_index=True, use_container_width=True)
 
-    # ---------------- Persist run ----------------
-    save_run(
-        goal=goal,
-        target_role=target_role or (result.goal_info.get("target_role", "")),
-        github_username=github_username,
-        overall_score=score,
-        adapted=result.adapted,
-        adaptation_reason=(result.adapted_plan.trigger_reason if result.adapted_plan else ""),
-        plan=[s.__dict__ for s in (result.plan.steps if result.plan else [])],
-    )
+    # ---------------- Persist run (best-effort; never blocks the UI) ----------------
+    try:
+        save_run(
+            goal=goal,
+            target_role=target_role or (result.goal_info.get("target_role", "")),
+            github_username=github_username,
+            overall_score=score,
+            adapted=result.adapted,
+            adaptation_reason=(result.adapted_plan.trigger_reason if result.adapted_plan else ""),
+            plan=[s.__dict__ for s in (result.plan.steps if result.plan else [])],
+        )
+    except Exception:
+        pass
 else:
     st.info("Fill in the inputs on the left and click **🚀 Run CareerPilot** to start the agent.")
