@@ -19,7 +19,14 @@ from typing import Any
 from config import get_secret
 
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
-GEMINI_MODEL = get_secret("GEMINI_MODEL", "gemini-2.5-flash")
+
+# gemini-2.5-flash is no longer available to new Gemini API users. Keep a
+# compatibility mapping so an older Streamlit secret does not break the app.
+_configured_model = get_secret("GEMINI_MODEL", "gemini-3.6-flash").strip()
+if _configured_model == "gemini-2.5-flash":
+    GEMINI_MODEL = "gemini-3.6-flash"
+else:
+    GEMINI_MODEL = _configured_model
 
 _client = None
 _configured = False
