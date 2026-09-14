@@ -6,7 +6,7 @@ import streamlit as st
 import pandas as pd
 
 from agents.career_agent import CareerPilotAgent
-from agents.llm_client import is_llm_available
+from agents.llm_client import is_llm_available, GEMINI_MODEL
 from database.database import save_run, get_recent_runs
 
 st.set_page_config(page_title="CareerPilot", page_icon="🧭", layout="wide")
@@ -18,7 +18,10 @@ st.title("🧭 CareerPilot")
 st.markdown("#### Agentic AI Career Execution System")
 st.caption("Goal → Observe → Decide → Act → Evaluate → Adapt")
 
-if not is_llm_available():
+# Make the active reasoning provider visible for demos and debugging.
+if is_llm_available():
+    st.success(f"🤖 AI Engine: Gemini ({GEMINI_MODEL}) — Active", icon="🤖")
+else:
     st.warning(
         "Gemini is not configured. CareerPilot will still run using deterministic "
         "local fallbacks for every reasoning step, but LLM-powered reasoning will be "
@@ -90,9 +93,6 @@ if run_clicked:
             )
         st.session_state["last_result"] = result
     except Exception as e:
-        # Every individual tool already fails gracefully internally; this is
-        # a last-resort safety net so an unexpected error never blanks the
-        # whole app for the user.
         st.error(
             "Something unexpected went wrong while running CareerPilot. "
             "Please try again — if this keeps happening, check that your "
@@ -108,7 +108,6 @@ if run_clicked:
 result = st.session_state.get("last_result")
 
 if result:
-    # ---------------- Agent Activity Panel ----------------
     st.subheader("🔄 Agent Activity")
     icon_map = {"success": "✅", "warning": "⚠️", "error": "❌", "info": "↻"}
     activity_cols = st.columns(1)
@@ -125,7 +124,6 @@ if result:
 
     st.divider()
 
-    # ---------------- Career Readiness ----------------
     ev = result.evaluation
     st.subheader("📊 Career Readiness")
     score = ev.overall_score if ev else 0
@@ -147,7 +145,6 @@ if result:
 
     st.divider()
 
-    # ---------------- Skill Gap Analysis ----------------
     st.subheader("🧩 Skill Gap Analysis")
     if result.ranked_gaps:
         df = pd.DataFrame(result.ranked_gaps)
@@ -161,7 +158,6 @@ if result:
 
     st.divider()
 
-    # ---------------- Agent Decision ----------------
     st.subheader("🧠 Agent Decision")
     st.write(result.decision_explanation)
     if result.job_research and result.job_research.source == "fallback_demo_dataset":
@@ -169,7 +165,6 @@ if result:
 
     st.divider()
 
-    # ---------------- Personalized Action Plan ----------------
     st.subheader("🗺️ Personalized Action Plan")
     if result.plan and result.plan.steps:
         plan_rows = [{
@@ -183,7 +178,6 @@ if result:
     else:
         st.caption("No plan generated.")
 
-    # ---------------- Adapted Plan (only if adaptation occurred) ----------------
     if result.adapted and result.adapted_plan and result.adapted_plan.steps:
         st.divider()
         st.subheader("🔁 Adapted Plan")
@@ -197,7 +191,6 @@ if result:
         } for s in result.adapted_plan.steps]
         st.dataframe(pd.DataFrame(adapted_rows), hide_index=True, use_container_width=True)
 
-    # ---------------- Persist run (best-effort; never blocks the UI) ----------------
     try:
         save_run(
             goal=goal,
