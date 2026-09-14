@@ -108,6 +108,11 @@ if run_clicked:
 result = st.session_state.get("last_result")
 
 if result:
+    if result.llm_used:
+        st.success(f"🤖 Gemini reasoning was successfully used in this run ({GEMINI_MODEL}).")
+    else:
+        st.warning("⚠️ No Gemini inference completed successfully in this run; local fallback reasoning was used.")
+
     st.subheader("🔄 Agent Activity")
     icon_map = {"success": "✅", "warning": "⚠️", "error": "❌", "info": "↻"}
     activity_cols = st.columns(1)
