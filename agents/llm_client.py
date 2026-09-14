@@ -23,22 +23,41 @@ GEMINI_MODEL = get_secret("GEMINI_MODEL", "gemini-2.5-flash")
 
 _client = None
 _configured = False
+_last_error = ""
+
+
+def _safe_error(exc: Exception) -> str:
+    """Return a diagnostic that never exposes the configured API key."""
+    text = str(exc) or exc.__class__.__name__
+    if GEMINI_API_KEY:
+        text = text.replace(GEMINI_API_KEY, "[REDACTED]")
+    # Also avoid accidentally exposing a long credential-like token.
+    text = re.sub(r"AIza[0-9A-Za-z_-]+", "[REDACTED]", text)
+    text = re.sub(r"AQ\.[0-9A-Za-z_-]+", "[REDACTED]", text)
+    return text[:600]
+
+
+def get_llm_diagnostic() -> str:
+    """Return the latest safe Gemini diagnostic for the UI."""
+    return _last_error
 
 
 def _configure() -> bool:
     """Lazily configure the current Google GenAI SDK."""
-    global _client, _configured
+    global _client, _configured, _last_error
     if _configured:
         return _client is not None
     _configured = True
     if not GEMINI_API_KEY:
+        _last_error = "GEMINI_API_KEY was not found in Streamlit secrets or environment variables."
         return False
     try:
         from google import genai
         _client = genai.Client(api_key=GEMINI_API_KEY)
         return True
-    except Exception:
+    except Exception as e:
         _client = None
+        _last_error = f"Gemini client setup failed: {_safe_error(e)}"
         return False
 
 
@@ -53,6 +72,7 @@ def call_gemini(
     response_mime_type: str | None = None,
 ) -> str:
     """Call Gemini with a text prompt and return the raw text response."""
+    global _last_error
     if not _configure():
         raise RuntimeError(
             "Gemini is not configured. Set GEMINI_API_KEY in Streamlit secrets "
@@ -71,9 +91,11 @@ def call_gemini(
         text = response.text or ""
         if not text.strip():
             raise RuntimeError("Gemini returned an empty response")
+        _last_error = ""
         return text
     except Exception as e:
-        raise RuntimeError(f"Gemini API call failed: {e}") from e
+        _last_error = f"Gemini API call failed: {_safe_error(e)}"
+        raise RuntimeError(_last_error) from e
 
 
 def call_gemini_json(prompt: str, temperature: float = 0.3) -> Any:
