@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, BinaryIO
 
-from agents.llm_client import call_gemini_json, is_llm_available
+from agents.llm_client import call_gemini_json, is_llm_available, get_llm_diagnostic
 from prompts.prompts import GOAL_UNDERSTANDING_PROMPT, DECISION_EXPLANATION_PROMPT
 
 from tools.resume_parser import parse_resume, ResumeResult
@@ -29,13 +29,13 @@ from agents.replanner import replan, ReplanResult
 
 @dataclass
 class ActivityEvent:
-    status: str   # "success" | "warning" | "info" | "error"
+    status: str
     message: str
 
 
 @dataclass
 class CareerPilotRunResult:
-    activity_log: list = field(default_factory=list)  # list[ActivityEvent]
+    activity_log: list = field(default_factory=list)
     goal_info: dict = field(default_factory=dict)
     resume: Optional[ResumeResult] = None
     github: Optional[GitHubResult] = None
@@ -60,6 +60,13 @@ class CareerPilotAgent:
     def _emit(self, status: str, message: str):
         self.log.append(ActivityEvent(status=status, message=message))
 
+    def _emit_llm_failure(self, stage: str):
+        diagnostic = get_llm_diagnostic()
+        if diagnostic:
+            self._emit("warning", f"Gemini inference failed ({stage}) — using local fallback: {diagnostic}")
+        else:
+            self._emit("warning", f"Gemini inference failed ({stage}) — using local fallback")
+
     def run(
         self,
         goal: str,
@@ -71,7 +78,6 @@ class CareerPilotAgent:
     ) -> CareerPilotRunResult:
         result = CareerPilotRunResult()
 
-        # ---------------- GOAL ----------------
         goal_info = self._understand_goal(goal, target_role, current_skills)
         result.goal_info = goal_info
         self._emit("success", "Goal analyzed")
@@ -79,19 +85,15 @@ class CareerPilotAgent:
         effective_role = goal_info.get("target_role") or target_role or "AI/ML Engineer"
         timeframe = goal_info.get("timeframe_months", 6)
 
-        # ---------------- OBSERVE: Resume ----------------
         resume_result = self._run_resume_tool(resume_file)
         result.resume = resume_result
 
-        # ---------------- OBSERVE: GitHub ----------------
         github_result = self._run_github_tool(github_username, force_github_failure)
         result.github = github_result
 
-        # ---------------- OBSERVE: Job requirements ----------------
         job_result = self._run_job_research(effective_role)
         result.job_research = job_result
 
-        # ---------------- DECIDE + ACT: Skill gap analysis ----------------
         skill_result = self._run_skill_analysis(
             effective_role, job_result, current_skills, resume_result, github_result
         )
@@ -103,14 +105,11 @@ class CareerPilotAgent:
             if skill_result.gaps else 50.0
         )
 
-        # ---------------- DECIDE: Explain prioritization ----------------
         result.decision_explanation = self._explain_decision(result.ranked_gaps)
 
-        # ---------------- ACT: Generate plan ----------------
         plan_result = self._run_planner(goal_info, effective_role, timeframe, skill_result.gaps)
         result.plan = plan_result
 
-        # ---------------- EVALUATE ----------------
         evaluation = self._run_evaluator(
             effective_role, resume_result, github_result, job_result, avg_gap
         )
@@ -118,7 +117,6 @@ class CareerPilotAgent:
         if evaluation.used_llm:
             self.llm_used = True
 
-        # ---------------- ADAPT / REPLAN ----------------
         needs_replan = (not github_result.success) or evaluation.needs_replan
         if needs_replan:
             trigger_reason, new_context = self._build_replan_context(github_result, evaluation)
@@ -144,10 +142,6 @@ class CareerPilotAgent:
         result.activity_log = self.log
         return result
 
-    # ------------------------------------------------------------------
-    # Individual step implementations
-    # ------------------------------------------------------------------
-
     def _understand_goal(self, goal: str, target_role: str, current_skills: str) -> dict:
         if is_llm_available():
             try:
@@ -163,8 +157,7 @@ class CareerPilotAgent:
                     raw.setdefault("timeframe_months", 6)
                     return raw
             except Exception:
-                pass
-        # local fallback
+                self._emit_llm_failure("goal understanding")
         return {
             "target_role": target_role or "AI/ML Engineer",
             "timeframe_months": 6,
@@ -234,7 +227,7 @@ class CareerPilotAgent:
                     self._emit("success", "Gemini reasoning completed (priority decision)")
                     return text
             except Exception:
-                pass
+                self._emit_llm_failure("priority decision")
         top = ranked_gaps[:3]
         names = ", ".join(g["skill"] for g in top)
         return (
